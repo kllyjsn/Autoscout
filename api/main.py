@@ -118,6 +118,32 @@ async def health():
     return {"status": "ok", "timestamp": time.time()}
 
 
+@app.get("/api/models")
+async def available_models():
+    """Return list of make/model combinations available in the cache."""
+    if not os.path.exists(CACHE_PATH):
+        return {"models": []}
+    try:
+        with open(CACHE_PATH) as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {"models": []}
+
+    models_set: set[tuple[str, str]] = set()
+    for item in raw:
+        m = item.get("make", "")
+        mo = item.get("model", "")
+        if m and mo:
+            models_set.add((m, mo))
+
+    return {
+        "models": [
+            {"make": m, "model": mo}
+            for m, mo in sorted(models_set)
+        ]
+    }
+
+
 @app.get("/api/search", response_model=SearchResponse)
 async def search(
     make: str = "Rivian",
@@ -144,45 +170,46 @@ async def search(
         condition=condition,
     )
 
-    scrapers = [cls() for cls in ALL_SCRAPERS]
-    sources_queried = [s.source.value for s in scrapers]
+    sources_queried: list[str] = []
     sources_succeeded: list[str] = []
     sources_failed: list[str] = []
 
-    # Run all scrapers concurrently
+    # Load cached data first (primary data source)
+    all_listings: list[Listing] = []
+    cached = _load_cached_listings(params)
+    if cached:
+        all_listings.extend(cached)
+        cached_sources = {l.source.value for l in cached}
+        for cs in sorted(cached_sources):
+            sources_succeeded.append(cs)
+            sources_queried.append(cs)
+        logger.info(f"Cache: {len(cached)} listings for {params.make} {params.model}")
+
+    # Try live scraping to supplement (non-blocking, best-effort)
+    scrapers = [cls() for cls in ALL_SCRAPERS]
+    for s in scrapers:
+        if s.source.value not in sources_queried:
+            sources_queried.append(s.source.value)
+
     tasks = [_run_scraper(s, params) for s in scrapers]
     results = await asyncio.gather(*tasks)
 
-    all_listings: list[Listing] = []
+    existing = {(l.title, l.price) for l in all_listings}
     for scraper, listings in zip(scrapers, results):
         if listings:
-            all_listings.extend(listings)
-            sources_succeeded.append(scraper.source.value)
-            logger.info(f"{scraper.source.value}: {len(listings)} listings (live)")
+            new_count = 0
+            for l in listings:
+                if (l.title, l.price) not in existing:
+                    all_listings.append(l)
+                    existing.add((l.title, l.price))
+                    new_count += 1
+            if new_count > 0:
+                logger.info(f"{scraper.source.value}: {new_count} new live listings")
+            if scraper.source.value not in sources_succeeded:
+                sources_succeeded.append(scraper.source.value)
         else:
-            sources_failed.append(scraper.source.value)
-
-    # If live scraping got few results, supplement with cached data
-    live_count = len(all_listings)
-    if live_count < 10:
-        cached = _load_cached_listings(params)
-        if cached:
-            # Merge cached listings (avoid duplicates by title+price)
-            existing = {(l.title, l.price) for l in all_listings}
-            for cl in cached:
-                if (cl.title, cl.price) not in existing:
-                    all_listings.append(cl)
-                    existing.add((cl.title, cl.price))
-
-            # Update source tracking for cached data
-            cached_sources = {l.source.value for l in cached}
-            for cs in cached_sources:
-                if cs in sources_failed:
-                    sources_failed.remove(cs)
-                if cs not in sources_succeeded:
-                    sources_succeeded.append(cs)
-
-            logger.info(f"Added {len(all_listings) - live_count} cached listings")
+            if scraper.source.value not in sources_succeeded:
+                sources_failed.append(scraper.source.value)
 
     # Score and analyze
     all_listings = score_listings(all_listings)
