@@ -288,7 +288,7 @@ class CarGurusScraper(BaseScraper):
             if params.mileage_max:
                 query["maxMileage"] = str(params.mileage_max)
 
-            resp = self._get_json(url, params=query, headers={
+            resp = await self._get_json(url, params=query, headers={
                 "X-Requested-With": "XMLHttpRequest",
             })
 

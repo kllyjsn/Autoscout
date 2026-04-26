@@ -25,7 +25,7 @@ class CarMaxScraper(BaseScraper):
                 "take": "100",
             }
 
-            resp = self._get_json(api_url, params=query)
+            resp = await self._get_json(api_url, params=query)
             data = resp.json()
             items = data.get("items", [])
 
@@ -86,7 +86,7 @@ class CarMaxScraper(BaseScraper):
             transmission = item.get("transmission", "")
             engine_size = item.get("engineSize", "")
             cylinders = item.get("cylinders")
-            engine = f"{engine_size} {cylinders}cyl".strip() if engine_size else ""
+            engine = f"{engine_size} {cylinders}cyl".strip() if engine_size and cylinders else (engine_size or "")
 
             has_price_drop = item.get("hasPriceDrop", False)
             condition = "Used"

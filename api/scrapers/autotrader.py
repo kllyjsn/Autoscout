@@ -38,7 +38,7 @@ class AutoTraderScraper(BaseScraper):
             if params.mileage_max:
                 query_params["maxMileage"] = str(params.mileage_max)
 
-            resp = self._get(url, params=query_params)
+            resp = await self._get(url, params=query_params)
             return self._parse(resp.text, params)
 
         except Exception:
@@ -51,6 +51,7 @@ class AutoTraderScraper(BaseScraper):
         match = re.search(
             r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
             html,
+            re.DOTALL,
         )
         if not match:
             logger.warning("AutoTrader: __NEXT_DATA__ not found")
