@@ -197,14 +197,15 @@ async def search(
         if cached:
             existing = {(l.title, l.price) for l in all_listings}
             added = 0
+            added_sources: set[str] = set()
             for cl in cached:
                 if (cl.title, cl.price) not in existing:
                     all_listings.append(cl)
                     existing.add((cl.title, cl.price))
                     added += 1
+                    added_sources.add(cl.source.value)
             if added:
-                cached_sources = {l.source.value for l in cached}
-                for cs in cached_sources:
+                for cs in added_sources:
                     if cs in sources_failed:
                         sources_failed.remove(cs)
                     if cs not in sources_succeeded:
