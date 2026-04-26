@@ -148,6 +148,11 @@ class AutoTraderScraper(BaseScraper):
 
             days_on_site = item.get("daysOnSite")
 
+            dealer_name = item.get("ownerName", item.get("dealerName", ""))
+            city = item.get("city", "")
+            state = item.get("state", "")
+            location = f"{city}, {state}".strip(", ")
+
             condition = "New" if item.get("listingType") == "NEW" else "Used"
             list_types = item.get("listingTypes", [])
             if "CPO" in list_types:
@@ -170,6 +175,8 @@ class AutoTraderScraper(BaseScraper):
                 transmission=trans_str,
                 engine=engine,
                 vin=item.get("vin", ""),
+                dealer_name=dealer_name,
+                location=location,
                 days_on_market=days_on_site,
                 image_url=image_url,
                 listing_url=listing_url,
