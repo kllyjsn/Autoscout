@@ -370,7 +370,7 @@ class CarGurusScraper(BaseScraper):
                 dealer_rating=dealer_rating,
                 location=location,
                 distance_miles=distance_miles,
-                days_on_market=int(days_on_market) if days_on_market else None,
+                days_on_market=int(days_on_market) if days_on_market is not None else None,
                 image_url=image_url,
                 listing_url=listing_url,
                 transmission=item.get("localizedTransmission", ""),
