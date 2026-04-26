@@ -22,6 +22,12 @@ function sortListings(listings: Listing[], sort: SortField): Listing[] {
       return sorted.sort((a, b) => a.mileage - b.mileage);
     case "year":
       return sorted.sort((a, b) => b.year - a.year);
+    case "distance":
+      return sorted.sort((a, b) => {
+        const da = a.distance_miles ?? 999999;
+        const db = b.distance_miles ?? 999999;
+        return da - db;
+      });
     default:
       return sorted;
   }

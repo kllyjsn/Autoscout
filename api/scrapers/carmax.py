@@ -23,6 +23,8 @@ class CarMaxScraper(BaseScraper):
                 "uri": uri,
                 "skip": "0",
                 "take": "100",
+                "zipCode": params.zip_code,
+                "radius": str(params.radius_miles),
             }
 
             resp = await self._get_json(api_url, params=query)
@@ -88,6 +90,9 @@ class CarMaxScraper(BaseScraper):
             cylinders = item.get("cylinders")
             engine = f"{engine_size} {cylinders}cyl".strip() if engine_size and cylinders else (engine_size or "")
 
+            raw_distance = item.get("distance")
+            distance_miles = round(raw_distance) if raw_distance is not None else None
+
             has_price_drop = item.get("hasPriceDrop", False)
             condition = "Used"
             if item.get("isNewArrival"):
@@ -113,6 +118,7 @@ class CarMaxScraper(BaseScraper):
                 dealer_name=dealer_name,
                 dealer_rating=float(dealer_rating) if dealer_rating else None,
                 location=location,
+                distance_miles=distance_miles,
                 listing_url=listing_url,
                 image_url=image_url,
                 condition=condition,

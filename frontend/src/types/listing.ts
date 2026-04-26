@@ -90,4 +90,4 @@ export interface SearchResponse {
   sources_failed: string[];
 }
 
-export type SortField = "deal_score" | "price_asc" | "price_desc" | "mileage" | "year";
+export type SortField = "deal_score" | "price_asc" | "price_desc" | "mileage" | "year" | "distance";

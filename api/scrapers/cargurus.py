@@ -348,6 +348,9 @@ class CarGurusScraper(BaseScraper):
             seller_region = item.get("sellerRegion", "")
             location = f"{seller_city}, {seller_region}" if seller_city else seller_region
 
+            raw_distance = item.get("distance")
+            distance_miles = round(raw_distance) if raw_distance is not None else None
+
             seller_rating = item.get("sellerRating")
             dealer_rating = float(seller_rating) if seller_rating else None
 
@@ -366,6 +369,7 @@ class CarGurusScraper(BaseScraper):
                 dealer_name=item.get("serviceProviderName", ""),
                 dealer_rating=dealer_rating,
                 location=location,
+                distance_miles=distance_miles,
                 days_on_market=int(days_on_market) if days_on_market else None,
                 image_url=image_url,
                 listing_url=listing_url,

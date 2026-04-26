@@ -7,6 +7,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "price_desc", label: "Price: High → Low" },
   { value: "mileage", label: "Lowest Mileage" },
   { value: "year", label: "Newest First" },
+  { value: "distance", label: "Nearest First" },
 ];
 
 interface Props {

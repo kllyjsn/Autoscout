@@ -72,10 +72,17 @@ export function ListingCard({ listing }: { listing: Listing }) {
             <Calendar className="w-3.5 h-3.5" />
             <span>{listing.year}</span>
           </div>
-          {listing.location && (
+          {(listing.location || listing.distance_miles != null) && (
             <div className="flex items-center gap-1.5 col-span-2">
-              <MapPin className="w-3.5 h-3.5" />
-              <span className="truncate">{listing.location}</span>
+              <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">
+                {listing.location}
+                {listing.distance_miles != null && (
+                  <span className="text-blue-400 ml-1">
+                    ({fmt(listing.distance_miles)} mi away)
+                  </span>
+                )}
+              </span>
             </div>
           )}
         </div>
