@@ -4,8 +4,6 @@ import json
 import logging
 import re
 
-from bs4 import BeautifulSoup
-
 from models import Listing, SearchParams, Source
 from scrapers.base import BaseScraper
 
@@ -25,7 +23,7 @@ class AutoTraderScraper(BaseScraper):
             query_params: dict[str, str] = {
                 "zip": params.zip_code,
                 "searchRadius": str(params.radius_miles),
-                "numRecords": "50",
+                "numRecords": "100",
                 "sortBy": "relevance",
                 "firstRecord": "0",
             }
@@ -40,7 +38,7 @@ class AutoTraderScraper(BaseScraper):
             if params.mileage_max:
                 query_params["maxMileage"] = str(params.mileage_max)
 
-            resp = await self._get(url, params=query_params)
+            resp = self._get(url, params=query_params)
             return self._parse(resp.text, params)
 
         except Exception:
@@ -49,75 +47,88 @@ class AutoTraderScraper(BaseScraper):
 
     def _parse(self, html: str, params: SearchParams) -> list[Listing]:
         listings: list[Listing] = []
-        soup = BeautifulSoup(html, "lxml")
 
-        # AutoTrader embeds data in __NEXT_DATA__ or similar JSON
-        for script in soup.find_all("script", id="__NEXT_DATA__"):
-            try:
-                data = json.loads(script.string or "")
-                props = data.get("props", {}).get("pageProps", {})
-                results = (
-                    props.get("listings", [])
-                    or props.get("initialListings", [])
-                    or props.get("results", [])
-                )
-                for item in results[:50]:
-                    listing = self._parse_next_item(item, params)
-                    if listing:
-                        listings.append(listing)
-            except (json.JSONDecodeError, KeyError):
-                continue
-
-        if listings:
-            return listings
-
-        # Try window.__BONNET_DATA__
         match = re.search(
-            r'window\.__BONNET_DATA__\s*=\s*({.*?});?\s*</script>',
-            html, re.DOTALL,
+            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+            html,
         )
-        if match:
-            try:
-                data = json.loads(match.group(1))
-                for item in data.get("initialResults", {}).get("listings", [])[:50]:
-                    listing = self._parse_bonnet_item(item, params)
-                    if listing:
-                        listings.append(listing)
-            except (json.JSONDecodeError, KeyError):
-                pass
+        if not match:
+            logger.warning("AutoTrader: __NEXT_DATA__ not found")
+            return []
 
-        if listings:
-            return listings
+        try:
+            data = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            logger.warning("AutoTrader: invalid JSON in __NEXT_DATA__")
+            return []
 
-        # HTML fallback
-        cards = soup.select(".inventory-listing, [data-cmp='inventoryListing']")
-        for card in cards:
-            listing = self._parse_card(card, params)
+        eggs = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("__eggsState", {})
+        )
+        inventory = eggs.get("inventory", {})
+
+        for listing_id, item in inventory.items():
+            listing = self._parse_item(item, params)
             if listing:
                 listings.append(listing)
 
+        logger.info(f"AutoTrader: parsed {len(listings)} listings")
         return listings
 
-    def _parse_next_item(self, item: dict, params: SearchParams) -> Listing | None:
+    def _parse_item(self, item: dict, params: SearchParams) -> Listing | None:
         try:
-            price = int(item.get("pricingDetail", {}).get("primary", 0)
-                        or item.get("price", 0)
-                        or item.get("derivedPrice", 0))
+            pricing = item.get("pricingDetail", {})
+            price = int(
+                pricing.get("primary")
+                or pricing.get("salePrice")
+                or pricing.get("dealerDiscountedPrice")
+                or pricing.get("msrp")
+                or 0
+            )
             if price <= 0:
                 return None
 
-            year = int(item.get("year", 2024))
-            mileage_str = item.get("mileage", item.get("mileageString", "0"))
-            mileage = int(re.sub(r"[^\d]", "", str(mileage_str)) or 0)
+            year = int(item.get("year", 0))
+            if year <= 0:
+                return None
 
-            title = f"{year} {item.get('make', params.make)} {item.get('model', params.model)}"
-            trim = item.get("trim", "")
+            raw_make = item.get("make", params.make)
+            make = raw_make.get("name", str(raw_make)) if isinstance(raw_make, dict) else str(raw_make)
+            raw_model = item.get("model", params.model)
+            model = raw_model.get("name", str(raw_model)) if isinstance(raw_model, dict) else str(raw_model)
+            raw_trim = item.get("trim", item.get("atTrim", ""))
+            trim = raw_trim.get("name", str(raw_trim)) if isinstance(raw_trim, dict) else str(raw_trim)
+
+            title = f"{year} {make} {model}"
             if trim:
                 title += f" {trim}"
 
-            listing_url = item.get("clickUrl", item.get("url", ""))
-            if listing_url and not listing_url.startswith("http"):
-                listing_url = f"{self.base_url}{listing_url}"
+            mileage_raw = item.get("mileage", 0)
+            if isinstance(mileage_raw, dict):
+                mileage_str = str(mileage_raw.get("value", "0"))
+                mileage = int(re.sub(r"[^\d]", "", mileage_str) or 0)
+            elif isinstance(mileage_raw, str):
+                mileage = int(re.sub(r"[^\d]", "", mileage_raw) or 0)
+            else:
+                mileage = int(mileage_raw or 0)
+
+            color = item.get("color", {})
+            ext_color = color.get("exteriorColorSimple", color.get("exteriorColor", ""))
+            int_color = color.get("interiorColorSimple", color.get("interiorColor", ""))
+
+            drive_type = item.get("driveType", {})
+            drivetrain = drive_type.get("description", "") if isinstance(drive_type, dict) else str(drive_type)
+
+            fuel_info = item.get("fuelType", {})
+            fuel_type = fuel_info.get("group", fuel_info.get("name", "")) if isinstance(fuel_info, dict) else str(fuel_info)
+
+            engine_info = item.get("engine", {})
+            engine = engine_info.get("name", "") if isinstance(engine_info, dict) else str(engine_info)
+
+            transmission = item.get("transmission", {})
+            trans_str = transmission.get("name", "") if isinstance(transmission, dict) else str(transmission)
 
             images = item.get("images", {})
             image_url = ""
@@ -128,68 +139,40 @@ class AutoTraderScraper(BaseScraper):
             elif isinstance(images, list) and images:
                 image_url = images[0] if isinstance(images[0], str) else images[0].get("url", "")
 
+            listing_id = str(item.get("id", ""))
+            vdp_base = item.get("vdpBaseUrl", "")
+            listing_url = f"{self.base_url}{vdp_base}" if vdp_base else ""
+            if not listing_url and listing_id:
+                listing_url = f"{self.base_url}/cars-for-sale/vehicledetails.xhtml?listingId={listing_id}"
+
+            days_on_site = item.get("daysOnSite")
+
+            condition = "New" if item.get("listingType") == "NEW" else "Used"
+            list_types = item.get("listingTypes", [])
+            if "CPO" in list_types:
+                condition = "Certified Pre-Owned"
+
             return Listing(
-                id=self._make_id("autotrader", str(item.get("id", "")), str(price)),
+                id=self._make_id("autotrader", listing_id, str(price)),
                 source=self.source,
                 title=title,
                 year=year,
-                make=item.get("make", params.make),
-                model=item.get("model", params.model),
+                make=make,
+                model=model,
                 trim=trim,
                 price=price,
                 mileage=mileage,
-                exterior_color=item.get("exteriorColor", ""),
-                interior_color=item.get("interiorColor", ""),
+                exterior_color=ext_color,
+                interior_color=int_color,
+                drivetrain=drivetrain,
+                fuel_type=fuel_type,
+                transmission=trans_str,
+                engine=engine,
                 vin=item.get("vin", ""),
-                dealer_name=item.get("ownerName", item.get("dealerName", "")),
-                location=f"{item.get('city', '')}, {item.get('state', '')}".strip(", "),
-                listing_url=listing_url,
+                days_on_market=days_on_site,
                 image_url=image_url,
-                condition=item.get("condition", "Used"),
+                listing_url=listing_url,
+                condition=condition,
             )
-        except (ValueError, TypeError):
-            return None
-
-    def _parse_bonnet_item(self, item: dict, params: SearchParams) -> Listing | None:
-        return self._parse_next_item(item, params)
-
-    def _parse_card(self, card: object, params: SearchParams) -> Listing | None:
-        try:
-            title_el = card.select_one("h2, .text-bold")
-            price_el = card.select_one(".first-price, [data-cmp='firstPrice']")
-            mileage_el = card.select_one(".text-bold-sm, .item-card-specifications li")
-            link_el = card.select_one("a[href]")
-            img_el = card.select_one("img")
-
-            title = title_el.get_text(strip=True) if title_el else ""
-            price_text = price_el.get_text(strip=True) if price_el else "0"
-            price = int(re.sub(r"[^\d]", "", price_text) or 0)
-            if price <= 0:
-                return None
-
-            mileage_text = mileage_el.get_text(strip=True) if mileage_el else "0"
-            mileage = int(re.sub(r"[^\d]", "", mileage_text) or 0)
-
-            year_match = re.match(r"(\d{4})", title)
-            year = int(year_match.group(1)) if year_match else 2024
-
-            href = ""
-            if link_el:
-                href = link_el.get("href", "")
-                if href and not href.startswith("http"):
-                    href = f"{self.base_url}{href}"
-
-            return Listing(
-                id=self._make_id("autotrader", title, str(price)),
-                source=self.source,
-                title=title,
-                year=year,
-                make=params.make,
-                model=params.model,
-                price=price,
-                mileage=mileage,
-                image_url=img_el.get("src", "") if img_el else "",
-                listing_url=href,
-            )
-        except (ValueError, TypeError, AttributeError):
+        except (ValueError, TypeError, KeyError):
             return None

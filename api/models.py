@@ -37,7 +37,7 @@ class Listing(BaseModel):
     exterior_color: str = ""
     interior_color: str = ""
     drivetrain: str = ""
-    fuel_type: str = "Electric"
+    fuel_type: str = ""
     transmission: str = ""
     engine: str = ""
     vin: str = ""

@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="AutoScout API",
-    description="Car market aggregator — real-time listings from CarGurus, Cars.com, AutoTrader, Carvana, CarMax",
-    version="0.1.0",
+    description="Car market aggregator — real-time listings from AutoTrader, CarMax, CarGurus and more",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -35,8 +35,12 @@ app.add_middleware(
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "scraped_data.json")
 
 
+# ---------------------------------------------------------------------------
+# Cache helpers
+# ---------------------------------------------------------------------------
+
 def _load_cached_listings(params: SearchParams) -> list[Listing]:
-    """Load pre-scraped listings from JSON cache as fallback."""
+    """Load pre-scraped listings from JSON cache as supplemental fallback."""
     if not os.path.exists(CACHE_PATH):
         return []
     try:
@@ -47,7 +51,6 @@ def _load_cached_listings(params: SearchParams) -> list[Listing]:
 
     listings: list[Listing] = []
     for item in raw:
-        # Filter by make/model if not matching
         item_make = item.get("make", "").lower()
         item_model = item.get("model", "").lower()
         if params.make.lower() != item_make or params.model.lower() != item_model:
@@ -56,11 +59,6 @@ def _load_cached_listings(params: SearchParams) -> list[Listing]:
         price = item.get("price", 0)
         mileage = item.get("mileage", 0)
 
-        # AutoTrader mileage fix: values < 200 are in thousands
-        if item.get("source") == "AutoTrader" and 0 < mileage < 200:
-            mileage *= 1000
-
-        # Apply filters
         if params.price_min and price < params.price_min:
             continue
         if params.price_max and price > params.price_max:
@@ -96,19 +94,24 @@ def _load_cached_listings(params: SearchParams) -> list[Listing]:
             listing_url=item.get("listing_url", ""),
             days_on_market=item.get("days_on_market"),
             condition=item.get("condition", "Used"),
-            fuel_type=item.get("fuel_type", "Electric"),
+            fuel_type=item.get("fuel_type", ""),
         ))
     return listings
 
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @app.get("/")
 async def root():
     return {
         "service": "AutoScout API",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "endpoints": {
             "search": "/api/search",
             "health": "/api/health",
+            "models": "/api/models",
         },
     }
 
@@ -116,6 +119,32 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "timestamp": time.time()}
+
+
+@app.get("/api/models")
+async def available_models():
+    """Return list of make/model combinations available in the cache."""
+    if not os.path.exists(CACHE_PATH):
+        return {"models": []}
+    try:
+        with open(CACHE_PATH) as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {"models": []}
+
+    models_set: set[tuple[str, str]] = set()
+    for item in raw:
+        m = item.get("make", "")
+        mo = item.get("model", "")
+        if m and mo:
+            models_set.add((m, mo))
+
+    return {
+        "models": [
+            {"make": m, "model": mo}
+            for m, mo in sorted(models_set)
+        ]
+    }
 
 
 @app.get("/api/search", response_model=SearchResponse)
@@ -149,7 +178,7 @@ async def search(
     sources_succeeded: list[str] = []
     sources_failed: list[str] = []
 
-    # Run all scrapers concurrently
+    # Run all scrapers concurrently (live scraping)
     tasks = [_run_scraper(s, params) for s in scrapers]
     results = await asyncio.gather(*tasks)
 
@@ -158,31 +187,29 @@ async def search(
         if listings:
             all_listings.extend(listings)
             sources_succeeded.append(scraper.source.value)
-            logger.info(f"{scraper.source.value}: {len(listings)} listings (live)")
+            logger.info(f"{scraper.source.value}: {len(listings)} listings")
         else:
             sources_failed.append(scraper.source.value)
 
-    # If live scraping got few results, supplement with cached data
-    live_count = len(all_listings)
-    if live_count < 10:
+    # Supplement with cached data if live scraping returned few results
+    if len(all_listings) < 10:
         cached = _load_cached_listings(params)
         if cached:
-            # Merge cached listings (avoid duplicates by title+price)
             existing = {(l.title, l.price) for l in all_listings}
+            added = 0
             for cl in cached:
                 if (cl.title, cl.price) not in existing:
                     all_listings.append(cl)
                     existing.add((cl.title, cl.price))
-
-            # Update source tracking for cached data
-            cached_sources = {l.source.value for l in cached}
-            for cs in cached_sources:
-                if cs in sources_failed:
-                    sources_failed.remove(cs)
-                if cs not in sources_succeeded:
-                    sources_succeeded.append(cs)
-
-            logger.info(f"Added {len(all_listings) - live_count} cached listings")
+                    added += 1
+            if added:
+                cached_sources = {l.source.value for l in cached}
+                for cs in cached_sources:
+                    if cs in sources_failed:
+                        sources_failed.remove(cs)
+                    if cs not in sources_succeeded:
+                        sources_succeeded.append(cs)
+                logger.info(f"Cache: added {added} supplemental listings")
 
     # Score and analyze
     all_listings = score_listings(all_listings)

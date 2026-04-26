@@ -2,27 +2,255 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-
-from bs4 import BeautifulSoup
 
 from models import Listing, SearchParams, Source
 from scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
-# CarGurus entity IDs for common makes/models
+# CarGurus entity IDs — verified by probing the JSON API.
+# Format: "make_model" (lowercased) -> entity ID.
 ENTITY_MAP: dict[str, str] = {
-    "rivian_r1s": "d2767",
-    "rivian_r1t": "d2766",
-    "tesla_model_y": "d2364",
-    "tesla_model_3": "d2171",
-    "tesla_model_x": "d1967",
-    "tesla_model_s": "d1566",
-    "ford_f-150_lightning": "d2843",
-    "chevrolet_bolt_ev": "d2171",
-    "bmw_ix": "d2820",
-    "mercedes-benz_eqs": "d2810",
+    # Toyota
+    "toyota_camry": "d292",
+    "toyota_corolla": "d295",
+    "toyota_rav4": "d306",
+    "toyota_highlander": "d298",
+    "toyota_tacoma": "d311",
+    "toyota_4runner": "d290",
+    "toyota_tundra": "d313",
+    "toyota_prius": "d15",
+    "toyota_supra": "d309",
+    "toyota_sienna": "d308",
+    "toyota_sequoia": "d307",
+    "toyota_avalon": "d291",
+    "toyota_fj cruiser": "d826",
+    "toyota_yaris": "d827",
+    # Honda
+    "honda_civic": "d586",
+    "honda_accord": "d585",
+    "honda_cr-v": "d589",
+    "honda_pilot": "d594",
+    "honda_odyssey": "d592",
+    "honda_fit": "d744",
+    "honda_ridgeline": "d734",
+    "honda_s2000": "d596",
+    "honda_element": "d590",
+    # Ford
+    "ford_f-150": "d337",
+    "ford_mustang": "d352",
+    "ford_explorer": "d334",
+    "ford_escape": "d330",
+    "ford_bronco": "d320",
+    "ford_edge": "d923",
+    "ford_expedition": "d333",
+    "ford_ranger": "d354",
+    "ford_focus": "d346",
+    "ford_fusion": "d845",
+    "ford_taurus": "d355",
+    "ford_gt": "d350",
+    # Chevrolet
+    "chevrolet_silverado 1500": "d630",
+    "chevrolet_equinox": "d616",
+    "chevrolet_tahoe": "d639",
+    "chevrolet_camaro": "d606",
+    "chevrolet_corvette": "d1",
+    "chevrolet_malibu": "d622",
+    "chevrolet_colorado": "d614",
+    "chevrolet_suburban": "d638",
+    "chevrolet_impala": "d619",
+    "chevrolet_trailblazer": "d642",
+    "chevrolet_blazer": "d602",
+    # BMW
+    "bmw_3 series": "d390",
+    "bmw_m3": "d390",
+    "bmw_m5": "d391",
+    "bmw_x3": "d392",
+    "bmw_x5": "d393",
+    "bmw_z4": "d395",
+    "bmw_m6": "d825",
+    # Mercedes-Benz
+    "mercedes-benz_c-class": "d66",
+    "mercedes-benz_e-class": "d76",
+    "mercedes-benz_s-class": "d82",
+    "mercedes-benz_g-class": "d78",
+    "mercedes-benz_cls": "d751",
+    "mercedes-benz_sl-class": "d84",
+    "mercedes-benz_r-class": "d829",
+    "mercedes-benz_gl-class": "d936",
+    # Porsche
+    "porsche_911": "d404",
+    "porsche_boxster": "d408",
+    "porsche_cayenne": "d410",
+    "porsche_cayman": "d993",
+    # Audi
+    "audi_a3": "d24",
+    "audi_a4": "d25",
+    "audi_a6": "d27",
+    "audi_a8": "d29",
+    "audi_s4": "d30",
+    "audi_tt": "d32",
+    "audi_q7": "d930",
+    "audi_rs 4": "d992",
+    "audi_rs 6": "d686",
+    # Hyundai
+    "hyundai_tucson": "d98",
+    "hyundai_santa fe": "d94",
+    "hyundai_sonata": "d96",
+    "hyundai_elantra": "d92",
+    "hyundai_accent": "d91",
+    # Kia
+    "kia_optima": "d158",
+    "kia_sorento": "d162",
+    "kia_sportage": "d164",
+    "kia_rio": "d159",
+    "kia_sedona": "d160",
+    # Subaru
+    "subaru_outback": "d380",
+    "subaru_forester": "d374",
+    "subaru_impreza": "d375",
+    "subaru_legacy": "d378",
+    "subaru_wrx sti": "d376",
+    # Jeep
+    "jeep_wrangler": "d494",
+    "jeep_grand cherokee": "d490",
+    "jeep_cherokee": "d488",
+    "jeep_liberty": "d492",
+    "jeep_compass": "d905",
+    "jeep_commander": "d849",
+    # Dodge
+    "dodge_challenger": "d894",
+    "dodge_charger": "d733",
+    "dodge_durango": "d651",
+    "dodge_ram 1500": "d665",
+    # GMC
+    "gmc_sierra 1500": "d116",
+    "gmc_yukon": "d130",
+    "gmc_acadia": "d925",
+    "gmc_canyon": "d103",
+    # Lexus
+    "lexus_gs hybrid": "d918",
+    # Nissan
+    "nissan_altima": "d237",
+    "nissan_maxima": "d242",
+    "nissan_murano": "d243",
+    "nissan_pathfinder": "d245",
+    "nissan_frontier": "d240",
+    "nissan_sentra": "d249",
+    "nissan_titan": "d251",
+    "nissan_xterra": "d253",
+    "nissan_350z": "d236",
+    "nissan_armada": "d238",
+    "nissan_versa": "d937",
+    # Volkswagen
+    "volkswagen_jetta": "d200",
+    "volkswagen_passat": "d202",
+    "volkswagen_golf": "d198",
+    "volkswagen_gti": "d199",
+    "volkswagen_touareg": "d205",
+    "volkswagen_beetle": "d201",
+    "volkswagen_tiguan": "d839",
+    "volkswagen_rabbit": "d839",
+    # INFINITI
+    "infiniti_g35": "d576",
+    "infiniti_fx35": "d573",
+    "infiniti_q45": "d582",
+    "infiniti_qx56": "d584",
+    "infiniti_m35": "d735",
+    # Acura
+    "acura_mdx": "d16",
+    "acura_tl": "d19",
+    "acura_tsx": "d20",
+    "acura_rdx": "d921",
+    "acura_rsx": "d3",
+    "acura_integra": "d36",
+    # Lincoln
+    "lincoln_navigator": "d530",
+    "lincoln_town car": "d531",
+    "lincoln_mkx": "d928",
+    "lincoln_mkz": "d974",
+    "lincoln_aviator": "d524",
+    # Cadillac
+    "cadillac_escalade": "d142",
+    "cadillac_cts": "d138",
+    "cadillac_cts-v": "d139",
+    "cadillac_dts": "d732",
+    "cadillac_srx": "d148",
+    "cadillac_sts": "d149",
+    # Volvo
+    "volvo_xc90": "d523",
+    "volvo_xc70": "d522",
+    "volvo_s60": "d511",
+    "volvo_s80": "d514",
+    "volvo_c70": "d508",
+    "volvo_v70": "d518",
+    # Mazda
+    "mazda_mazda3": "d214",
+    "mazda_mazda6": "d215",
+    "mazda_mx-5 miata": "d221",
+    "mazda_cx-7": "d935",
+    "mazda_rx-8": "d227",
+    "mazda_tribute": "d228",
+    # Land Rover
+    "land rover_range rover": "d156",
+    "land rover_range rover sport": "d834",
+    "land rover_lr3": "d155",
+    "land rover_lr2": "d927",
+    "land rover_discovery": "d152",
+    "land rover_defender": "d151",
+    # Mitsubishi
+    "mitsubishi_eclipse": "d417",
+    "mitsubishi_outlander": "d429",
+    "mitsubishi_lancer": "d422",
+    "mitsubishi_lancer evolution": "d423",
+    # Chrysler
+    "chrysler_300": "d165",
+    "chrysler_town & country": "d182",
+    "chrysler_pacifica": "d177",
+    "chrysler_sebring": "d180",
+    "chrysler_pt cruiser": "d179",
+    # Buick
+    "buick_lacrosse": "d272",
+    "buick_enclave": "d278",
+    "buick_regal": "d277",
+    "buick_lucerne": "d844",
+    # Pontiac
+    "pontiac_g6": "d467",
+    "pontiac_grand prix": "d469",
+    "pontiac_firebird": "d466",
+    "pontiac_gto": "d470",
+    "pontiac_solstice": "d737",
+    "pontiac_g8": "d979",
+    # Saturn
+    "saturn_vue": "d538",
+    "saturn_ion": "d532",
+    "saturn_aura": "d938",
+    "saturn_sky": "d939",
+    # Hummer
+    "hummer_h2": "d231",
+    "hummer_h3": "d843",
+    # Bentley
+    "bentley_continental gt": "d35",
+    "bentley_continental flying spur": "d34",
+    # Lamborghini
+    "lamborghini_gallardo": "d255",
+    "lamborghini_murcielago": "d256",
+    # Ferrari
+    "ferrari_f430": "d443",
+    "ferrari_360": "d437",
+    "ferrari_599 gtb fiorano": "d959",
+    # Aston Martin
+    "aston martin_db9": "d908",
+    "aston martin_v8 vantage": "d910",
+    # Maserati
+    "maserati_quattroporte": "d402",
+    "maserati_gransport": "d401",
+    # Rolls-Royce
+    "rolls-royce_phantom": "d413",
+    # Suzuki
+    "suzuki_grand vitara": "d260",
+    # MINI
+    "mini_cooper": "d436",
 }
 
 
@@ -33,188 +261,116 @@ class CarGurusScraper(BaseScraper):
     async def search(self, params: SearchParams) -> list[Listing]:
         try:
             entity_key = f"{params.make.lower()}_{params.model.lower()}"
-            entity_id = ENTITY_MAP.get(entity_key, "d2767")
+            entity_id = ENTITY_MAP.get(entity_key)
 
-            url = (
-                f"{self.base_url}/Cars/inventorylisting/"
-                f"viewDetailsFilterViewInventoryListing.action"
-            )
-            query_params = {
-                "sourceContext": "carGurusHomePage_false_0",
-                "entitySelectingHelper.selectedEntity": entity_id,
+            if not entity_id:
+                logger.info(f"CarGurus: no entity ID for {params.make} {params.model}, skipping")
+                return []
+
+            url = f"{self.base_url}/Cars/searchResults.action"
+            query: dict[str, str] = {
                 "zip": params.zip_code,
+                "inventorySearchWidgetType": "AUTO",
+                "sortDir": "ASC",
+                "sortType": "DEAL",
                 "distance": str(params.radius_miles),
-                "startYear": str(params.year_min or ""),
-                "endYear": str(params.year_max or ""),
-                "minPrice": str(params.price_min or ""),
-                "maxPrice": str(params.price_max or ""),
-                "maxMileage": str(params.mileage_max or ""),
+                "entitySelectingHelper.selectedEntity": entity_id,
+                "maxResults": "50",
             }
-            # Remove empty params
-            query_params = {k: v for k, v in query_params.items() if v}
+            if params.year_min:
+                query["startYear"] = str(params.year_min)
+            if params.year_max:
+                query["endYear"] = str(params.year_max)
+            if params.price_min:
+                query["minPrice"] = str(params.price_min)
+            if params.price_max:
+                query["maxPrice"] = str(params.price_max)
+            if params.mileage_max:
+                query["maxMileage"] = str(params.mileage_max)
 
-            resp = await self._get(url, params=query_params)
-            return self._parse(resp.text, params)
+            resp = self._get_json(url, params=query, headers={
+                "X-Requested-With": "XMLHttpRequest",
+            })
+
+            raw = resp.text
+            if raw == "null" or not raw.strip():
+                return []
+
+            data = json.loads(raw)
+            if not isinstance(data, list):
+                return []
+
+            listings: list[Listing] = []
+            for item in data:
+                listing = self._parse_item(item, params)
+                if listing:
+                    listings.append(listing)
+
+            logger.info(f"CarGurus: {len(listings)} listings")
+            return listings
 
         except Exception:
             logger.exception("CarGurus scrape failed")
             return []
 
-    def _parse(self, html: str, params: SearchParams) -> list[Listing]:
-        listings: list[Listing] = []
-        soup = BeautifulSoup(html, "lxml")
-
-        # Try to find JSON-LD structured data first
-        for script in soup.find_all("script", type="application/ld+json"):
-            try:
-                data = json.loads(script.string or "")
-                if isinstance(data, dict) and data.get("@type") == "ItemList":
-                    for item in data.get("itemListElement", []):
-                        offer = item.get("item", {})
-                        listing = self._parse_jsonld_item(offer, params)
-                        if listing:
-                            listings.append(listing)
-            except (json.JSONDecodeError, KeyError):
-                continue
-
-        if listings:
-            return listings
-
-        # Fall back to HTML parsing
-        cards = soup.select('[data-testid="srp-tile-card"], .cg-dealFinder-result, .listing-row')
-        for card in cards:
-            listing = self._parse_card(card, params)
-            if listing:
-                listings.append(listing)
-
-        # Try parsing from embedded JS state
-        if not listings:
-            listings = self._parse_js_state(html, params)
-
-        return listings
-
-    def _parse_jsonld_item(self, item: dict, params: SearchParams) -> Listing | None:
+    def _parse_item(self, item: dict, params: SearchParams) -> Listing | None:
         try:
-            offers = item.get("offers", {})
-            price_str = offers.get("price", "0")
-            price = int(float(str(price_str).replace(",", "").replace("$", "")))
+            price = int(item.get("price", 0) or 0)
             if price <= 0:
                 return None
 
-            name = item.get("name", "")
-            year = int(item.get("vehicleModelDate", item.get("modelDate", 0)))
-            mileage_str = item.get("mileageFromOdometer", {})
-            if isinstance(mileage_str, dict):
-                mileage = int(float(str(mileage_str.get("value", "0")).replace(",", "")))
-            else:
-                mileage = int(float(str(mileage_str).replace(",", "")))
-
-            return Listing(
-                id=self._make_id("cargurus", name, str(price)),
-                source=self.source,
-                title=name,
-                year=year,
-                make=params.make,
-                model=params.model,
-                trim=item.get("vehicleConfiguration", ""),
-                price=price,
-                mileage=mileage,
-                exterior_color=item.get("color", ""),
-                vin=item.get("vehicleIdentificationNumber", ""),
-                listing_url=item.get("url", ""),
-                image_url=item.get("image", ""),
-                dealer_name=offers.get("seller", {}).get("name", ""),
-                location=offers.get("seller", {}).get("address", {}).get("addressLocality", ""),
-            )
-        except (ValueError, TypeError):
-            return None
-
-    def _parse_card(self, card: object, params: SearchParams) -> Listing | None:
-        try:
-            title_el = card.select_one("h4, .listing-title, [data-testid='srp-tile-title']")
-            price_el = card.select_one(".price, [data-testid='srp-tile-price'], .cg-dealFinder-result-stats-price")
-            mileage_el = card.select_one(".mileage, [data-testid='srp-tile-mileage']")
-            dealer_el = card.select_one(".dealer-name, [data-testid='srp-tile-dealer-name']")
-            img_el = card.select_one("img")
-            link_el = card.select_one("a[href]")
-
-            title = title_el.get_text(strip=True) if title_el else ""
-            price_text = price_el.get_text(strip=True) if price_el else "0"
-            price = int(re.sub(r"[^\d]", "", price_text) or 0)
-            if price <= 0:
+            year = int(item.get("carYear", 0))
+            if year <= 0:
                 return None
 
-            mileage_text = mileage_el.get_text(strip=True) if mileage_el else "0"
-            mileage = int(re.sub(r"[^\d]", "", mileage_text) or 0)
+            make = item.get("makeName", params.make)
+            model = item.get("modelName", params.model)
+            trim = item.get("trimName", "")
 
-            year_match = re.match(r"(\d{4})", title)
-            year = int(year_match.group(1)) if year_match else 2024
+            title = item.get("listingTitle", f"{year} {make} {model}")
 
-            href = link_el.get("href", "") if link_el else ""
-            if href and not href.startswith("http"):
-                href = f"{self.base_url}{href}"
+            mileage = int(item.get("mileage", 0) or 0)
+
+            listing_id = str(item.get("id", ""))
+            listing_url = f"{self.base_url}/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?#listing={listing_id}" if listing_id else ""
+
+            image_data = item.get("originalPictureData", {})
+            image_url = ""
+            if isinstance(image_data, dict):
+                photos = image_data.get("photos", [])
+                if photos and isinstance(photos, list):
+                    first = photos[0]
+                    image_url = first.get("url", "") if isinstance(first, dict) else str(first)
+
+            days_on_market = item.get("daysOnMarket")
+
+            seller_city = item.get("sellerCity", "")
+            seller_region = item.get("sellerRegion", "")
+            location = f"{seller_city}, {seller_region}" if seller_city else seller_region
+
+            seller_rating = item.get("sellerRating")
+            dealer_rating = float(seller_rating) if seller_rating else None
 
             return Listing(
-                id=self._make_id("cargurus", title, str(price)),
+                id=self._make_id("cargurus", listing_id, str(price)),
                 source=self.source,
                 title=title,
                 year=year,
-                make=params.make,
-                model=params.model,
+                make=make,
+                model=model,
+                trim=trim,
                 price=price,
                 mileage=mileage,
-                dealer_name=dealer_el.get_text(strip=True) if dealer_el else "",
-                image_url=img_el.get("src", "") if img_el else "",
-                listing_url=href,
-            )
-        except (ValueError, TypeError, AttributeError):
-            return None
-
-    def _parse_js_state(self, html: str, params: SearchParams) -> list[Listing]:
-        listings: list[Listing] = []
-        # CarGurus embeds listing data in window.__INITIAL_STATE__ or similar
-        patterns = [
-            r'"listings"\s*:\s*(\[.*?\])\s*[,}]',
-            r'"results"\s*:\s*(\[.*?\])\s*[,}]',
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, html, re.DOTALL)
-            if match:
-                try:
-                    data = json.loads(match.group(1))
-                    for item in data[:50]:
-                        listing = self._parse_js_item(item, params)
-                        if listing:
-                            listings.append(listing)
-                    if listings:
-                        return listings
-                except (json.JSONDecodeError, TypeError):
-                    continue
-        return listings
-
-    def _parse_js_item(self, item: dict, params: SearchParams) -> Listing | None:
-        try:
-            price = int(item.get("price", item.get("listPrice", 0)))
-            if price <= 0:
-                return None
-
-            return Listing(
-                id=self._make_id("cargurus", str(item.get("id", "")), str(price)),
-                source=self.source,
-                title=f"{item.get('year', '')} {params.make} {params.model}",
-                year=int(item.get("year", 2024)),
-                make=params.make,
-                model=params.model,
-                trim=item.get("trim", ""),
-                price=price,
-                mileage=int(item.get("mileage", 0)),
-                exterior_color=item.get("exteriorColor", ""),
+                exterior_color=item.get("localizedExteriorColor", item.get("exteriorColorName", "")),
                 vin=item.get("vin", ""),
-                dealer_name=item.get("dealerName", ""),
-                location=f"{item.get('city', '')}, {item.get('state', '')}",
-                listing_url=item.get("url", item.get("listingUrl", "")),
-                image_url=item.get("imageUrl", item.get("mainPictureUrl", "")),
-                days_on_market=item.get("daysOnMarket"),
+                dealer_name=item.get("serviceProviderName", ""),
+                dealer_rating=dealer_rating,
+                location=location,
+                days_on_market=int(days_on_market) if days_on_market else None,
+                image_url=image_url,
+                listing_url=listing_url,
+                transmission=item.get("localizedTransmission", ""),
+                condition="Used",
             )
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, KeyError):
             return None

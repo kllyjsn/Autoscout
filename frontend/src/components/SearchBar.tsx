@@ -10,12 +10,15 @@ interface Props {
 
 const POPULAR_SEARCHES = [
   { make: "Rivian", model: "R1S", label: "Rivian R1S" },
-  { make: "Rivian", model: "R1T", label: "Rivian R1T" },
   { make: "Tesla", model: "Model Y", label: "Tesla Model Y" },
-  { make: "Tesla", model: "Model 3", label: "Tesla Model 3" },
-  { make: "Ford", model: "F-150 Lightning", label: "F-150 Lightning" },
-  { make: "BMW", model: "iX", label: "BMW iX" },
-  { make: "Porsche", model: "Taycan", label: "Porsche Taycan" },
+  { make: "Toyota", model: "Camry", label: "Toyota Camry" },
+  { make: "Honda", model: "Civic", label: "Honda Civic" },
+  { make: "Ford", model: "F-150", label: "Ford F-150" },
+  { make: "BMW", model: "3 Series", label: "BMW 3 Series" },
+  { make: "Toyota", model: "RAV4", label: "Toyota RAV4" },
+  { make: "Porsche", model: "911", label: "Porsche 911" },
+  { make: "Chevrolet", model: "Corvette", label: "Chevy Corvette" },
+  { make: "Jeep", model: "Wrangler", label: "Jeep Wrangler" },
 ];
 
 export function SearchBar({ params, loading, onSearch }: Props) {
