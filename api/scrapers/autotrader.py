@@ -80,7 +80,7 @@ class AutoTraderScraper(BaseScraper):
 
     def _parse_item(self, item: dict, params: SearchParams) -> Listing | None:
         try:
-            pricing = item.get("pricingDetail", {})
+            pricing = item.get("pricingDetail") or {}
             price = int(
                 pricing.get("primary")
                 or pricing.get("salePrice")
@@ -115,7 +115,7 @@ class AutoTraderScraper(BaseScraper):
             else:
                 mileage = int(mileage_raw or 0)
 
-            color = item.get("color", {})
+            color = item.get("color") or {}
             ext_color = color.get("exteriorColorSimple", color.get("exteriorColor", ""))
             int_color = color.get("interiorColorSimple", color.get("interiorColor", ""))
 
@@ -182,5 +182,5 @@ class AutoTraderScraper(BaseScraper):
                 listing_url=listing_url,
                 condition=condition,
             )
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError, AttributeError):
             return None
