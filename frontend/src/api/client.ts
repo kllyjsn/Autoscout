@@ -1,6 +1,6 @@
 import type { SearchParams, SearchResponse } from "../types/listing";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL || "https://autoscout-api-jkaobyma.fly.dev";
 
 export async function searchListings(
   params: Partial<SearchParams>
