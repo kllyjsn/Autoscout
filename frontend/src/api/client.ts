@@ -2,6 +2,11 @@ import type { SearchParams, SearchResponse } from "../types/listing";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+export interface AvailableModel {
+  make: string;
+  model: string;
+}
+
 export async function searchListings(
   params: Partial<SearchParams>
 ): Promise<SearchResponse> {
@@ -23,4 +28,15 @@ export async function searchListings(
     throw new Error(`Search failed: ${resp.status} ${resp.statusText}`);
   }
   return resp.json();
+}
+
+export async function fetchAvailableModels(): Promise<AvailableModel[]> {
+  try {
+    const resp = await fetch(`${API_BASE}/api/models`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data.models || [];
+  } catch {
+    return [];
+  }
 }
