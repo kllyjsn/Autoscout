@@ -332,7 +332,13 @@ class CarGurusScraper(BaseScraper):
             mileage = int(item.get("mileage", 0) or 0)
 
             listing_id = str(item.get("id", ""))
-            listing_url = f"{self.base_url}/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?#listing={listing_id}" if listing_id else ""
+            vdp_url = item.get("vdpUrl", "")
+            if vdp_url:
+                listing_url = f"{self.base_url}{vdp_url}" if not vdp_url.startswith("http") else vdp_url
+            elif listing_id:
+                listing_url = f"{self.base_url}/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action?#listing={listing_id}"
+            else:
+                listing_url = ""
 
             image_data = item.get("originalPictureData", {})
             image_url = ""
@@ -352,7 +358,7 @@ class CarGurusScraper(BaseScraper):
             distance_miles = round(raw_distance) if raw_distance is not None else None
 
             seller_rating = item.get("sellerRating")
-            dealer_rating = float(seller_rating) if seller_rating else None
+            dealer_rating = float(seller_rating) if seller_rating is not None else None
 
             return Listing(
                 id=self._make_id("cargurus", listing_id, str(price)),

@@ -116,7 +116,7 @@ class CarMaxScraper(BaseScraper):
                 engine=engine,
                 vin=item.get("vin", ""),
                 dealer_name=dealer_name,
-                dealer_rating=float(dealer_rating) if dealer_rating else None,
+                dealer_rating=float(dealer_rating) if dealer_rating is not None else None,
                 location=location,
                 distance_miles=distance_miles,
                 listing_url=listing_url,
